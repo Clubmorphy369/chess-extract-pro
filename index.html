@@ -552,6 +552,12 @@
             <p>Arrastra y ajusta el recuadro para seleccionar solo el tablero de ajedrez</p>
             
             <div class="image-counter" id="imageCounter">Imagen 1 de 1</div>
+            <!-- NUEVO: Botón para invertir orden -->
+            <div style="display: flex; gap: 10px; justify-content: center; margin-bottom: 10px;">
+                <button id="reverseOrderBtn" class="btn btn-warning btn-sm">
+                    <i class="fas fa-sort-amount-down"></i> Invertir orden
+                </button>
+            </div>
             
             <div class="quality-control">
                 <span class="form-label">Calidad de imagen (para PDF):</span>
@@ -707,6 +713,8 @@
         const footerInput = document.getElementById('footerInput');
         const processAllBtn = document.getElementById('processAllBtn');
         const clearAllBtn = document.getElementById('clearAllBtn');
+        // NUEVO: Referencia al botón de invertir orden
+        const reverseOrderBtn = document.getElementById('reverseOrderBtn');
         
         // Inicializar el recuadro de selección
         function initCropBox() {
@@ -1218,6 +1226,22 @@
             }
         }
         
+        // NUEVA FUNCIÓN: Invertir el orden de las imágenes
+        function reverseImageOrder() {
+            if (imageFiles.length <= 1) {
+                showNotification("No hay suficientes imágenes para invertir");
+                return;
+            }
+            // Invertir el array
+            imageFiles.reverse();
+            // Recalcular el índice actual (la misma imagen que se estaba viendo)
+            const newIndex = imageFiles.length - 1 - currentImageIndex;
+            currentImageIndex = newIndex;
+            // Recargar la imagen
+            loadCurrentImage();
+            showNotification("Orden de imágenes invertido");
+        }
+        
         // Guardar la plantilla de recorte actual
         function saveCropTemplate() {
             if (!cropBox) return;
@@ -1362,6 +1386,9 @@
         
         // Event listener para limpiar todos los tableros
         clearAllBtn.addEventListener('click', clearAllChessboards);
+        
+        // NUEVO: Event listener para invertir el orden
+        reverseOrderBtn.addEventListener('click', reverseImageOrder);
         
         // Actualizar vista previa cuando cambien los encabezados o pies de página
         headerInput.addEventListener('input', updatePdfPreview);
