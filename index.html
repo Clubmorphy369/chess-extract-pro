@@ -8,7 +8,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        /* Estilos CSS sin cambios (igual que antes) */
         :root {
             --primary: #2c3e50;
             --secondary: #3498db;
@@ -347,7 +346,6 @@
             border-radius: var(--border-radius);
         }
         
-        /* ESTILOS MODIFICADOS PARA LA VISTA PREVIA DEL PDF */
         .page {
             width: 100%;
             min-height: 300px;
@@ -478,6 +476,14 @@
             align-items: center;
             justify-content: space-between;
             margin-bottom: 15px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .section-title-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
         }
         
         .step-number {
@@ -552,10 +558,9 @@
             <p>Arrastra y ajusta el recuadro para seleccionar solo el tablero de ajedrez</p>
             
             <div class="image-counter" id="imageCounter">Imagen 1 de 1</div>
-            <!-- NUEVO: Botón para invertir orden -->
             <div style="display: flex; gap: 10px; justify-content: center; margin-bottom: 10px;">
                 <button id="reverseOrderBtn" class="btn btn-warning btn-sm">
-                    <i class="fas fa-sort-amount-down"></i> Invertir orden
+                    <i class="fas fa-sort-amount-down"></i> Invertir orden de trabajo
                 </button>
             </div>
             
@@ -629,9 +634,14 @@
                     <i class="fas fa-check-circle"></i>
                     <h2>Tableros guardados <span class="badge badge-primary" id="chessboardsCount">0</span></h2>
                 </div>
-                <button id="clearAllBtn" class="btn btn-danger btn-sm">
-                    <i class="fas fa-trash"></i> Eliminar todos
-                </button>
+                <div class="section-title-actions">
+                    <button id="reverseSavedBtn" class="btn btn-warning btn-sm">
+                        <i class="fas fa-exchange-alt"></i> Invertir orden (60→1)
+                    </button>
+                    <button id="clearAllBtn" class="btn btn-danger btn-sm">
+                        <i class="fas fa-trash"></i> Eliminar todos
+                    </button>
+                </div>
             </div>
             <div id="chessboards" class="chessboards-grid"></div>
         </section>
@@ -663,7 +673,9 @@
     </div>
 
     <script>
-        // Variables globales
+        // =========================================================
+        // VARIABLES GLOBALES
+        // =========================================================
         let originalImage = null;
         let cropBox = null;
         let isDragging = false;
@@ -672,19 +684,24 @@
         let startX, startY;
         let cropBoxX, cropBoxY, cropBoxWidth, cropBoxHeight;
         let savedChessboards = [];
-        let imageQuality = 0.7; // Valor predeterminado más bajo
-        let resolutionFactor = 0.75; // Valor predeterminado para resolución
-        let editingIndex = -1; // -1 para nuevo, >=0 para editar
+        let imageQuality = 0.7;
+        let resolutionFactor = 0.75;
+        let editingIndex = -1;
         
-        // Nuevas variables para múltiples imágenes
+        // Múltiples imágenes
         let imageFiles = [];
         let currentImageIndex = 0;
         
-        // Variables para plantilla de recorte
+        // Plantilla
         let cropTemplate = null;
         let templateAppliedToAll = false;
         
-        // Elementos DOM
+        // Flag para evitar listeners duplicados en cropBox
+        let cropBoxInitialized = false;
+        
+        // =========================================================
+        // ELEMENTOS DOM
+        // =========================================================
         const imageInput = document.getElementById('imageInput');
         const loadImageBtn = document.getElementById('loadImageBtn');
         const cropSection = document.getElementById('cropSection');
@@ -713,62 +730,69 @@
         const footerInput = document.getElementById('footerInput');
         const processAllBtn = document.getElementById('processAllBtn');
         const clearAllBtn = document.getElementById('clearAllBtn');
-        // NUEVO: Referencia al botón de invertir orden
         const reverseOrderBtn = document.getElementById('reverseOrderBtn');
+        const reverseSavedBtn = document.getElementById('reverseSavedBtn');
         
-        // Inicializar el recuadro de selección
+        // =========================================================
+        // INICIALIZAR CROPBOX (evita listeners duplicados)
+        // =========================================================
         function initCropBox() {
             cropBox = document.querySelector('.crop-box');
             if (!cropBox) return;
             
-            // Si hay una plantilla y se ha solicitado aplicarla a todas, aplicar ahora
-            if (cropTemplate && templateAppliedToAll) {
-                applyCropTemplate();
+            // Solo registrar listeners UNA VEZ en toda la vida de la app
+            if (!cropBoxInitialized) {
+                const handles = cropBox.querySelectorAll('.resize-handle');
+                handles.forEach(handle => {
+                    handle.addEventListener('mousedown', startResize);
+                });
+                cropBox.addEventListener('mousedown', startDrag);
+                document.addEventListener('mousemove', handleMove);
+                document.addEventListener('mouseup', stopInteraction);
+                cropBoxInitialized = true;
             }
-            // Si no hay plantilla, establecer tamaño inicial del recuadro (50% del ancho de la imagen)
-            else if (!cropTemplate) {
-                const imgWidth = imageToCrop.width;
-                const imgHeight = imageToCrop.height;
-                
+            
+            const imgWidth = imageToCrop.width;
+            const imgHeight = imageToCrop.height;
+            
+            if (imgWidth === 0 || imgHeight === 0) return;
+            
+            // Si hay plantilla, aplicarla proporcionalmente
+            if (cropTemplate) {
+                cropBoxX = cropTemplate.x * imgWidth;
+                cropBoxY = cropTemplate.y * imgHeight;
+                cropBoxWidth = cropTemplate.width * imgWidth;
+                cropBoxHeight = cropTemplate.height * imgHeight;
+            } else {
+                // Tamaño por defecto (50% del ancho, centrado)
                 cropBoxX = imgWidth * 0.25;
                 cropBoxY = imgHeight * 0.25;
                 cropBoxWidth = imgWidth * 0.5;
                 cropBoxHeight = imgHeight * 0.5;
-                
-                updateCropBox();
             }
             
-            // Agregar event listeners para el recuadro
-            const handles = cropBox.querySelectorAll('.resize-handle');
-            handles.forEach(handle => {
-                handle.addEventListener('mousedown', startResize);
-            });
-            
-            cropBox.addEventListener('mousedown', startDrag);
-            document.addEventListener('mousemove', handleMove);
-            document.addEventListener('mouseup', stopInteraction);
-            
+            updateCropBox();
             cropBox.classList.remove('hidden');
             cropBtn.disabled = false;
-            
-            // Actualizar estado de botones de plantilla
             updateTemplateButtons();
         }
         
-        // Actualizar la posición y tamaño del recuadro
+        // =========================================================
+        // ACTUALIZAR POSICIÓN DEL RECUADRO
+        // =========================================================
         function updateCropBox() {
             if (!cropBox) return;
-            
             cropBox.style.left = `${cropBoxX}px`;
             cropBox.style.top = `${cropBoxY}px`;
             cropBox.style.width = `${cropBoxWidth}px`;
             cropBox.style.height = `${cropBoxHeight}px`;
         }
         
-        // Iniciar arrastre del recuadro
+        // =========================================================
+        // ARRASTRE Y REDIMENSIONAMIENTO
+        // =========================================================
         function startDrag(e) {
             if (e.target.classList.contains('resize-handle')) return;
-            
             isDragging = true;
             startX = e.clientX;
             startY = e.clientY;
@@ -776,7 +800,6 @@
             cropBoxY = parseInt(cropBox.style.top);
         }
         
-        // Iniciar redimensionamiento del recuadro
         function startResize(e) {
             isResizing = true;
             startX = e.clientX;
@@ -785,10 +808,9 @@
             cropBoxY = parseInt(cropBox.style.top);
             cropBoxWidth = parseInt(cropBox.style.width);
             cropBoxHeight = parseInt(cropBox.style.height);
-            resizeDirection = e.target.classList[1]; // Obtener la dirección (nw, ne, sw, se)
+            resizeDirection = e.target.classList[1];
         }
         
-        // Manejar movimiento del mouse durante arrastre/redimensionamiento
         function handleMove(e) {
             if (!isDragging && !isResizing) return;
             
@@ -796,11 +818,8 @@
             const dy = e.clientY - startY;
             
             if (isDragging) {
-                // Mover el recuadro
                 const newX = cropBoxX + dx;
                 const newY = cropBoxY + dy;
-                
-                // Limitar el movimiento dentro de la imagen
                 if (newX >= 0 && newX + cropBoxWidth <= imageToCrop.width) {
                     cropBoxX = newX;
                 }
@@ -808,7 +827,6 @@
                     cropBoxY = newY;
                 }
             } else if (isResizing) {
-                // Redimensionar el recuadro según la dirección
                 switch (resizeDirection) {
                     case 'resize-nw':
                         if (cropBoxX + dx >= 0 && cropBoxWidth - dx >= 50) {
@@ -854,31 +872,28 @@
             startY = e.clientY;
         }
         
-        // Detener interacción (arrastre/redimensionamiento)
         function stopInteraction() {
             isDragging = false;
             isResizing = false;
         }
         
-        // Recortar la imagen según la selección
+        // =========================================================
+        // RECORTAR IMAGEN
+        // =========================================================
         function cropImage() {
             if (!originalImage || !cropBox) return null;
             
-            // Calcular el tamaño del canvas basado en el factor de resolución
             const canvasWidth = cropBoxWidth * resolutionFactor;
             const canvasHeight = cropBoxHeight * resolutionFactor;
             
-            // Crear un canvas para el recorte
             const canvas = document.createElement('canvas');
             canvas.width = canvasWidth;
             canvas.height = canvasHeight;
             const ctx = canvas.getContext('2d');
             
-            // Calcular factores de escala
             const scaleX = originalImage.width / imageToCrop.width;
             const scaleY = originalImage.height / imageToCrop.height;
             
-            // Dibujar la porción recortada con la resolución seleccionada
             ctx.drawImage(
                 originalImage,
                 cropBoxX * scaleX, cropBoxY * scaleY,
@@ -887,72 +902,52 @@
                 canvasWidth, canvasHeight
             );
             
-            // Usar JPEG para mayor compresión (menor tamaño de archivo)
             return canvas.toDataURL('image/jpeg', imageQuality);
         }
         
-        // Mostrar notificación
+        // =========================================================
+        // NOTIFICACIONES
+        // =========================================================
         function showNotification(message) {
             notificationText.textContent = message;
             notification.classList.add('show');
-            
             setTimeout(() => {
                 notification.classList.remove('show');
             }, 3000);
         }
         
-        // Agregar un tablero to the list of saved ones
+        // =========================================================
+        // GUARDAR TABLERO
+        // =========================================================
         function addChessboard(dataUrl) {
             if (editingIndex >= 0) {
-                // Reemplazar imagen existente
                 savedChessboards[editingIndex] = dataUrl;
                 showNotification("Tablero actualizado correctamente");
                 editingIndex = -1;
             } else {
-                // Agregar nueva imagen
                 savedChessboards.push(dataUrl);
                 showNotification("Tablero guardado correctamente");
             }
-            
-            // Actualizar la visualización
             updateChessboardsDisplay();
-            
-            // Avanzar a la siguiente imagen automáticamente
-            if (currentImageIndex < imageFiles.length - 1) {
-                nextImage();
-            } else {
-                // Si es la última imagen, reiniciar
-                resetCropSection();
-            }
         }
         
-        // Reiniciar la sección de recorte
-        function resetCropSection() {
-            cropSection.classList.add('hidden');
-            imageInput.value = '';
-            loadImageBtn.disabled = true;
-            imageFiles = [];
-            currentImageIndex = 0;
-            templateAppliedToAll = false;
-        }
-        
-        // Iniciar edición de un tablero existente
+        // =========================================================
+        // EDITAR TABLERO
+        // =========================================================
         function startEdit(index) {
             editingIndex = index;
-            
-            // Cargar la imagen existente en el recortador
             originalImage = new Image();
             originalImage.onload = function() {
                 imageToCrop.src = savedChessboards[index];
                 cropSection.classList.remove('hidden');
-                
-                // Inicializar el recuadro después de que la imagen se cargue completamente
                 setTimeout(initCropBox, 100);
             };
             originalImage.src = savedChessboards[index];
         }
         
-        // Actualizar la visualización de tableros guardados
+        // =========================================================
+        // ACTUALIZAR GRID DE TABLEROS GUARDADOS
+        // =========================================================
         function updateChessboardsDisplay() {
             chessboardsContainer.innerHTML = '';
             chessboardsCount.textContent = savedChessboards.length;
@@ -975,7 +970,6 @@
                 `;
                 chessboardsContainer.appendChild(chessboardItem);
                 
-                // Agregar eventos para los botones
                 const removeBtn = chessboardItem.querySelector('.remove-btn');
                 const replaceBtn = chessboardItem.querySelector('.replace-btn');
                 
@@ -992,10 +986,8 @@
                 });
             });
             
-            // Actualizar vista previa del PDF
             updatePdfPreview();
             
-            // Mostrar/ocultar secciones según sea necesario
             if (savedChessboards.length > 0) {
                 previewSection.classList.remove('hidden');
                 pdfSection.classList.remove('hidden');
@@ -1005,7 +997,9 @@
             }
         }
         
-        // Actualizar la vista previa del PDF
+        // =========================================================
+        // VISTA PREVIA DEL PDF
+        // =========================================================
         function updatePdfPreview() {
             pdfPreview.innerHTML = '';
             const itemsPerPage = 6;
@@ -1020,7 +1014,6 @@
                 page.className = 'page';
                 page.id = `page${p + 1}`;
                 
-                // Agregar encabezado si existe
                 if (headerText) {
                     const header = document.createElement('div');
                     header.className = 'page-header';
@@ -1028,17 +1021,14 @@
                     page.appendChild(header);
                 }
                 
-                // Crear contenedor para el grid de tableros
                 const pageContent = document.createElement('div');
                 pageContent.className = 'page-content';
                 
-                // Crear celdas para la página
                 for (let i = 0; i < itemsPerPage; i++) {
                     const index = p * itemsPerPage + i;
                     const cell = document.createElement('div');
                     cell.className = 'page-cell';
                     
-                    // Agregar número en la parte superior
                     const numberLabel = document.createElement('div');
                     numberLabel.textContent = `${index + 1}`;
                     numberLabel.style.textAlign = 'center';
@@ -1047,12 +1037,10 @@
                     cell.appendChild(numberLabel);
                     
                     if (index < savedChessboards.length) {
-                        // Agregar imagen del tablero
                         const img = document.createElement('img');
                         img.src = savedChessboards[index];
                         cell.appendChild(img);
                         
-                        // Agregar líneas para respuestas
                         const answerLines = document.createElement('div');
                         answerLines.className = 'answer-lines';
                         for (let j = 0; j < 3; j++) {
@@ -1068,17 +1056,14 @@
                 
                 page.appendChild(pageContent);
                 
-                // Agregar pie de página
                 const footer = document.createElement('div');
                 footer.className = 'page-footer';
                 
-                // Agregar número de página
                 const pageNumber = document.createElement('div');
                 pageNumber.className = 'page-number';
                 pageNumber.textContent = `Página ${p + 1}`;
                 footer.appendChild(pageNumber);
                 
-                // Agregar texto del pie de página si existe
                 if (footerText) {
                     const footerTextElem = document.createElement('div');
                     footerTextElem.textContent = footerText;
@@ -1090,37 +1075,31 @@
             }
         }
         
-        // Generar y descargar el PDF (tamaño A4)
+        // =========================================================
+        // GENERAR PDF
+        // =========================================================
         function generatePdf() {
             if (savedChessboards.length === 0) return;
             
-            // Usar jsPDF con orientación vertical y tamaño A4
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF('p', 'mm', 'a4');
             
-            // Calcular número de páginas necesarias
             const itemsPerPage = 6;
-            const pageCount = Math.ceil(savedChessboards.length / itemsPerPage);
+            const imgWidth = 58.5;
+            const imgHeight = 58.5;
             
-            // Tamaño de cada imagen en el PDF (en mm) - reducido un 10%
-            const imgWidth = 58.5;  // 65 * 0.9 = 58.5
-            const imgHeight = 58.5; // 65 * 0.9 = 58.5
-            
-            // Posiciones para las imágenes (3 filas x 2 columnas) en mm - ajustadas para el nuevo tamaño
             const positions = [
-                { x: 27, y: 40 },   // Fila 1, Col 1
-                { x: 122, y: 40 },  // Fila 1, Col 2
-                { x: 27, y: 120 },  // Fila 2, Col 1
-                { x: 122, y: 120 }, // Fila 2, Col 2
-                { x: 27, y: 200 },  // Fila 3, Col 1
-                { x: 122, y: 200 }  // Fila 3, Col 2
+                { x: 27, y: 40 },
+                { x: 122, y: 40 },
+                { x: 27, y: 120 },
+                { x: 122, y: 120 },
+                { x: 27, y: 200 },
+                { x: 122, y: 200 }
             ];
             
-            // Agregar encabezado y pie de página a cada página
             const headerText = headerInput.value;
             const footerText = footerInput.value;
             
-            // Agregar cada tablero al PDF
             for (let i = 0; i < savedChessboards.length; i++) {
                 const pageIndex = Math.floor(i / itemsPerPage);
                 const positionIndex = i % itemsPerPage;
@@ -1129,31 +1108,27 @@
                     doc.addPage();
                 }
                 
-                // Agregar encabezado
                 if (headerText) {
                     doc.setFontSize(12);
                     doc.text(headerText, 105, 20, { align: 'center' });
                 }
                 
-                // Agregar número arriba de la imagen - reducido de 5mm a 2.5mm
                 const centerX = positions[positionIndex].x + (imgWidth / 2);
-                const numberY = positions[positionIndex].y - 2.5; // Reducido de 5mm a 2.5mm
+                const numberY = positions[positionIndex].y - 2.5;
                 doc.setFontSize(12);
                 doc.text(`${i + 1}`, centerX, numberY, { align: 'center' });
                 
-                // Agregar imagen del tablero (10% más pequeña)
                 doc.addImage(
                     savedChessboards[i],
-                    'JPEG', // Cambiado de PNG a JPEG para mejor compresión
+                    'JPEG',
                     positions[positionIndex].x,
                     positions[positionIndex].y,
                     imgWidth,
                     imgHeight,
-                    undefined, // alias
-                    'FAST' // Modo de renderizado rápido
+                    undefined,
+                    'FAST'
                 );
                 
-                // Agregar líneas para respuestas
                 const lineY = positions[positionIndex].y + imgHeight + 6;
                 for (let j = 0; j < 3; j++) {
                     doc.line(
@@ -1164,28 +1139,19 @@
                     );
                 }
                 
-                // Agregar pie de página
                 if (footerText) {
                     doc.setFontSize(10);
                     doc.text(footerText, 105, 287, { align: 'center' });
                 }
             }
             
-            // Aplicar compresión adicional al PDF
-            if (doc.internal.pages && doc.internal.pages.length > 0) {
-                for (let i = 1; i <= doc.internal.pages.length; i++) {
-                    doc.setPage(i);
-                    // Reducir calidad de imágenes en el PDF
-                    doc.internal.scaleFactor = 1.5; // Factor de escala para compresión
-                }
-            }
-            
-            // Descargar el PDF
             doc.save('ejercicios_ajedrez.pdf');
             showNotification("PDF generado y descargado");
         }
         
-        // Cargar la imagen actual
+        // =========================================================
+        // CARGA DE IMAGEN ACTUAL
+        // =========================================================
         function loadCurrentImage() {
             if (imageFiles.length === 0) return;
             
@@ -1194,23 +1160,20 @@
                 originalImage = new Image();
                 originalImage.onload = function() {
                     imageToCrop.src = e.target.result;
-                    
-                    // Inicializar el recuadro después de que la imagen se cargue completamente
                     setTimeout(initCropBox, 100);
                 };
                 originalImage.src = e.target.result;
             };
             reader.readAsDataURL(imageFiles[currentImageIndex]);
             
-            // Actualizar contador de imágenes
             imageCounter.textContent = `Imagen ${currentImageIndex + 1} de ${imageFiles.length}`;
-            
-            // Actualizar estado de botones de navegación
             prevImageBtn.disabled = currentImageIndex === 0;
             nextImageBtn.disabled = currentImageIndex === imageFiles.length - 1;
         }
         
-        // Navegar a la imagen anterior
+        // =========================================================
+        // NAVEGACIÓN
+        // =========================================================
         function prevImage() {
             if (currentImageIndex > 0) {
                 currentImageIndex--;
@@ -1218,7 +1181,6 @@
             }
         }
         
-        // Navegar a la imagen siguiente
         function nextImage() {
             if (currentImageIndex < imageFiles.length - 1) {
                 currentImageIndex++;
@@ -1226,27 +1188,36 @@
             }
         }
         
-        // NUEVA FUNCIÓN: Invertir el orden de las imágenes
+        // Invertir el orden de las imágenes de trabajo
         function reverseImageOrder() {
             if (imageFiles.length <= 1) {
                 showNotification("No hay suficientes imágenes para invertir");
                 return;
             }
-            // Invertir el array
             imageFiles.reverse();
-            // Recalcular el índice actual (la misma imagen que se estaba viendo)
             const newIndex = imageFiles.length - 1 - currentImageIndex;
             currentImageIndex = newIndex;
-            // Recargar la imagen
             loadCurrentImage();
             showNotification("Orden de imágenes invertido");
         }
         
-        // Guardar la plantilla de recorte actual
+        // Invertir el orden de los tableros YA guardados
+        function reverseSavedChessboards() {
+            if (savedChessboards.length < 2) {
+                showNotification("No hay suficientes tableros para invertir");
+                return;
+            }
+            savedChessboards.reverse();
+            updateChessboardsDisplay();
+            showNotification("Orden de tableros invertido");
+        }
+        
+        // =========================================================
+        // PLANTILLAS DE RECORTE
+        // =========================================================
         function saveCropTemplate() {
             if (!cropBox) return;
             
-            // Guardar la plantilla como porcentajes relativos al tamaño de la imagen
             const imgWidth = imageToCrop.width;
             const imgHeight = imageToCrop.height;
             
@@ -1261,7 +1232,6 @@
             updateTemplateButtons();
         }
         
-        // Aplicar la plantilla de recorte a la imagen actual
         function applyCropTemplate() {
             if (!cropTemplate) return;
             
@@ -1277,56 +1247,99 @@
             showNotification("Plantilla aplicada a esta imagen");
         }
         
-        // Aplicar la plantilla de recorte a todas las imágenes
         function applyTemplateToAll() {
             if (!cropTemplate) return;
-            
             templateAppliedToAll = true;
             applyCropTemplate();
             showNotification("Plantilla aplicada a todas las imágenes");
         }
         
-        // Procesar automáticamente todas las imágenes
-        function processAllImages() {
-            if (imageFiles.length === 0) return;
-            
-            // Aplicar plantilla a todas si existe
-            if (cropTemplate) {
-                templateAppliedToAll = true;
-            }
-            
-            // Función recursiva para procesar todas las imágenes
-            const processNextImage = (index) => {
-                if (index >= imageFiles.length) {
-                    showNotification("Todas las imágenes procesadas");
-                    return;
-                }
-                
-                currentImageIndex = index;
-                loadCurrentImage();
-                
-                // Esperar a que la imagen se cargue y luego recortar
-                setTimeout(() => {
-                    const croppedImageData = cropImage();
-                    if (croppedImageData) {
-                        savedChessboards.push(croppedImageData);
-                        updateChessboardsDisplay();
-                        processNextImage(index + 1);
-                    }
-                }, 500); // Esperar medio segundo entre imágenes
-            };
-            
-            // Iniciar el procesamiento
-            processNextImage(0);
-        }
-        
-        // Actualizar el estado de los botones de plantilla
         function updateTemplateButtons() {
             applyTemplateBtn.disabled = !cropTemplate;
             applyToAllBtn.disabled = !cropTemplate;
         }
         
-        // Limpiar todos los tableros guardados
+        // =========================================================
+        // ✅ PROCESAMIENTO AUTOMÁTICO CORREGIDO (sin imágenes repetidas)
+        // =========================================================
+        
+        // Cargar imagen desde File como Promise
+        function loadImageFromFile(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => resolve({ img, dataUrl: e.target.result });
+                    img.onerror = () => reject(new Error('Error cargando imagen: ' + file.name));
+                    img.src = e.target.result;
+                };
+                reader.onerror = () => reject(new Error('Error leyendo archivo: ' + file.name));
+                reader.readAsDataURL(file);
+            });
+        }
+        
+        async function processAllImages() {
+            if (imageFiles.length === 0) {
+                showNotification("No hay imágenes para procesar");
+                return;
+            }
+            
+            if (cropTemplate) {
+                templateAppliedToAll = true;
+            }
+            
+            processAllBtn.disabled = true;
+            const originalHTML = processAllBtn.innerHTML;
+            processAllBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Procesando...';
+            
+            try {
+                for (let i = 0; i < imageFiles.length; i++) {
+                    currentImageIndex = i;
+                    imageCounter.textContent = `Procesando ${i + 1} de ${imageFiles.length}...`;
+                    
+                    // 1. Cargar imagen y esperar a que esté lista
+                    const { img, dataUrl } = await loadImageFromFile(imageFiles[i]);
+                    originalImage = img;
+                    imageToCrop.src = dataUrl;
+                    
+                    // 2. Esperar a que el navegador calcule el layout
+                    await new Promise((resolve) => {
+                        if (imageToCrop.complete && imageToCrop.naturalWidth > 0) {
+                            resolve();
+                        } else {
+                            imageToCrop.onload = resolve;
+                        }
+                    });
+                    
+                    // 3. Esperar un tick para que se estabilice el layout
+                    await new Promise(r => setTimeout(r, 40));
+                    
+                    // 4. Inicializar cropBox (usa la plantilla o el default)
+                    initCropBox();
+                    
+                    // 5. Recortar y guardar
+                    const croppedImageData = cropImage();
+                    if (croppedImageData) {
+                        savedChessboards.push(croppedImageData);
+                    }
+                }
+                
+                // Actualizar el grid UNA SOLA VEZ al final
+                updateChessboardsDisplay();
+                showNotification(`Se procesaron ${imageFiles.length} imágenes correctamente`);
+            } catch (err) {
+                console.error(err);
+                showNotification("Error al procesar: " + err.message);
+            } finally {
+                processAllBtn.disabled = false;
+                processAllBtn.innerHTML = originalHTML;
+                imageCounter.textContent = `Imagen ${currentImageIndex + 1} de ${imageFiles.length}`;
+            }
+        }
+        
+        // =========================================================
+        // LIMPIAR TODOS LOS TABLEROS
+        // =========================================================
         function clearAllChessboards() {
             if (savedChessboards.length === 0) return;
             
@@ -1337,17 +1350,23 @@
             }
         }
         
-        // Event Listeners
+        // =========================================================
+        // EVENT LISTENERS
+        // =========================================================
+        
+        // ✅ Ordenamiento NATURAL por nombre (1, 2, 3, ..., 10, 11, ...)
         imageInput.addEventListener('change', function() {
             loadImageBtn.disabled = !this.files || this.files.length === 0;
             if (this.files && this.files.length > 0) {
                 imageFiles = Array.from(this.files);
+                imageFiles.sort((a, b) =>
+                    a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+                );
             }
         });
         
         loadImageBtn.addEventListener('click', function() {
             if (imageFiles.length === 0) return;
-            
             cropSection.classList.remove('hidden');
             loadCurrentImage();
         });
@@ -1357,40 +1376,35 @@
             if (croppedImageData) {
                 addChessboard(croppedImageData);
                 previewSection.classList.remove('hidden');
+                
+                // Avanzar automáticamente a la siguiente imagen
+                if (currentImageIndex < imageFiles.length - 1) {
+                    nextImage();
+                }
             }
         });
         
         prevImageBtn.addEventListener('click', prevImage);
         nextImageBtn.addEventListener('click', nextImage);
-        
         generatePdfBtn.addEventListener('click', generatePdf);
         
-        // Control de calidad
         qualitySlider.addEventListener('input', function() {
             imageQuality = parseFloat(this.value);
             qualityValue.textContent = this.value;
         });
         
-        // Control de resolución
         resolutionSelect.addEventListener('change', function() {
             resolutionFactor = parseFloat(this.value);
         });
         
-        // Event listeners para plantillas
         saveTemplateBtn.addEventListener('click', saveCropTemplate);
         applyTemplateBtn.addEventListener('click', applyCropTemplate);
         applyToAllBtn.addEventListener('click', applyTemplateToAll);
-        
-        // Event listener para procesamiento automático
         processAllBtn.addEventListener('click', processAllImages);
-        
-        // Event listener para limpiar todos los tableros
         clearAllBtn.addEventListener('click', clearAllChessboards);
-        
-        // NUEVO: Event listener para invertir el orden
         reverseOrderBtn.addEventListener('click', reverseImageOrder);
+        reverseSavedBtn.addEventListener('click', reverseSavedChessboards);
         
-        // Actualizar vista previa cuando cambien los encabezados o pies de página
         headerInput.addEventListener('input', updatePdfPreview);
         footerInput.addEventListener('input', updatePdfPreview);
     </script>
